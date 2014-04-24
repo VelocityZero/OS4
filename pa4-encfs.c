@@ -10,7 +10,7 @@
   This program can be distributed under the terms of the GNU GPL.
   See the file COPYING.
 
-  gcc -Wall `pkg-config fuse --cflags` fusexmp.c -o fusexmp `pkg-config fuse --libs`
+  gcc -Wall `pkg-config fuse --cflags` fusebb.c -o fusebb `pkg-config fuse --libs`
 
   Note: This implementation is largely stateless and does not maintain
         open file handels between open and release calls (fi->fh).
@@ -46,19 +46,40 @@
 #include <sys/types.h>
 #include <limits.h>
 #include "log.h"
+#include "params.h"
 #ifdef HAVE_SETXATTR
 #include <sys/xattr.h>
 
-
-// maintain bbfs state in here
-struct xmp_state {
-    FILE *logfile;
-    char *rootdir;
-};
-
 #endif
 
-static int xmp_getattr(const char *fpath, struct stat *stbuf)
+// Report errors to logfile and give -errno to caller
+static int bb_error(char *str)
+{
+    int ret = -errno;
+    
+    log_msg("    ERROR %s: %s\n", str, strerror(errno));
+    
+    return ret;
+}
+
+// Check whether the given user is permitted to perform the given operation on the given 
+
+//  All the paths I see are relative to the root of the mounted
+//  filesystem.  In order to get to the underlying filesystem, I need to
+//  have the mountpoint.  I'll save it away early on in main(), and then
+//  whenever I need a path for something I'll call this to construct
+//  it.
+static void bb_fullpath(char fpath[PATH_MAX], const char *path)
+{
+    strcpy(fpath, BB_DATA->rootdir);
+    strncat(fpath, path, PATH_MAX); // ridiculously long paths will
+				    // break here
+
+    log_msg("    bb_fullpath:  rootdir = \"%s\", path = \"%s\", fpath = \"%s\"\n",
+	    BB_DATA->rootdir, path, fpath);
+}
+
+static int bb_getattr(const char *fpath, struct stat *stbuf)
 {
 	int res;
 
@@ -69,7 +90,7 @@ static int xmp_getattr(const char *fpath, struct stat *stbuf)
 	return 0;
 }
 
-static int xmp_access(const char *fpath, int mask)
+static int bb_access(const char *fpath, int mask)
 {
 	int res;
 
@@ -80,7 +101,7 @@ static int xmp_access(const char *fpath, int mask)
 	return 0;
 }
 
-static int xmp_readlink(const char *fpath, char *buf, size_t size)
+static int bb_readlink(const char *fpath, char *buf, size_t size)
 {
 	int res;
 
@@ -93,7 +114,7 @@ static int xmp_readlink(const char *fpath, char *buf, size_t size)
 }
 
 
-static int xmp_readdir(const char *fpath, void *buf, fuse_fill_dir_t filler,
+static int bb_readdir(const char *fpath, void *buf, fuse_fill_dir_t filler,
 		       off_t offset, struct fuse_file_info *fi)
 {
 	DIR *dp;
@@ -119,7 +140,7 @@ static int xmp_readdir(const char *fpath, void *buf, fuse_fill_dir_t filler,
 	return 0;
 }
 
-static int xmp_mknod(const char *fpath, mode_t mode, dev_t rdev)
+static int bb_mknod(const char *fpath, mode_t mode, dev_t rdev)
 {
 	int res;
 
@@ -139,7 +160,7 @@ static int xmp_mknod(const char *fpath, mode_t mode, dev_t rdev)
 	return 0;
 }
 
-static int xmp_mkdir(const char *fpath, mode_t mode)
+static int bb_mkdir(const char *fpath, mode_t mode)
 {
 	int res;
 
@@ -150,7 +171,7 @@ static int xmp_mkdir(const char *fpath, mode_t mode)
 	return 0;
 }
 
-static int xmp_unlink(const char *fpath)
+static int bb_unlink(const char *fpath)
 {
 	int res;
 
@@ -161,7 +182,7 @@ static int xmp_unlink(const char *fpath)
 	return 0;
 }
 
-static int xmp_rmdir(const char *fpath)
+static int bb_rmdir(const char *fpath)
 {
 	int res;
 
@@ -172,7 +193,7 @@ static int xmp_rmdir(const char *fpath)
 	return 0;
 }
 
-static int xmp_symlink(const char *from, const char *to)
+static int bb_symlink(const char *from, const char *to)
 {
 	int res;
 
@@ -183,7 +204,7 @@ static int xmp_symlink(const char *from, const char *to)
 	return 0;
 }
 
-static int xmp_rename(const char *from, const char *to)
+static int bb_rename(const char *from, const char *to)
 {
 	int res;
 
@@ -194,7 +215,7 @@ static int xmp_rename(const char *from, const char *to)
 	return 0;
 }
 
-static int xmp_link(const char *from, const char *to)
+static int bb_link(const char *from, const char *to)
 {
 	int res;
 
@@ -205,7 +226,7 @@ static int xmp_link(const char *from, const char *to)
 	return 0;
 }
 
-static int xmp_chmod(const char *fpath, mode_t mode)
+static int bb_chmod(const char *fpath, mode_t mode)
 {
 	int res;
 
@@ -216,7 +237,7 @@ static int xmp_chmod(const char *fpath, mode_t mode)
 	return 0;
 }
 
-static int xmp_chown(const char *fpath, uid_t uid, gid_t gid)
+static int bb_chown(const char *fpath, uid_t uid, gid_t gid)
 {
 	int res;
 
@@ -227,7 +248,7 @@ static int xmp_chown(const char *fpath, uid_t uid, gid_t gid)
 	return 0;
 }
 
-static int xmp_truncate(const char *fpath, off_t size)
+static int bb_truncate(const char *fpath, off_t size)
 {
 	int res;
 
@@ -238,7 +259,7 @@ static int xmp_truncate(const char *fpath, off_t size)
 	return 0;
 }
 
-static int xmp_utimens(const char *fpath, const struct timespec ts[2])
+static int bb_utimens(const char *fpath, const struct timespec ts[2])
 {
 	int res;
 	struct timeval tv[2];
@@ -255,7 +276,7 @@ static int xmp_utimens(const char *fpath, const struct timespec ts[2])
 	return 0;
 }
 
-static int xmp_open(const char *fpath, struct fuse_file_info *fi)
+static int bb_open(const char *fpath, struct fuse_file_info *fi)
 {
 	int res;
 
@@ -267,7 +288,7 @@ static int xmp_open(const char *fpath, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int xmp_read(const char *fpath, char *buf, size_t size, off_t offset,
+static int bb_read(const char *fpath, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
 	int fd;
@@ -286,7 +307,7 @@ static int xmp_read(const char *fpath, char *buf, size_t size, off_t offset,
 	return res;
 }
 
-static int xmp_write(const char *fpath, const char *buf, size_t size,
+static int bb_write(const char *fpath, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
 	int fd;
@@ -305,7 +326,7 @@ static int xmp_write(const char *fpath, const char *buf, size_t size,
 	return res;
 }
 
-static int xmp_statfs(const char *fpath, struct statvfs *stbuf)
+static int bb_statfs(const char *fpath, struct statvfs *stbuf)
 {
 	int res;
 
@@ -316,7 +337,7 @@ static int xmp_statfs(const char *fpath, struct statvfs *stbuf)
 	return 0;
 }
 
-static int xmp_create(const char* fpath, mode_t mode, struct fuse_file_info* fi) {
+static int bb_create(const char* fpath, mode_t mode, struct fuse_file_info* fi) {
 
     (void) fi;
 
@@ -331,7 +352,7 @@ static int xmp_create(const char* fpath, mode_t mode, struct fuse_file_info* fi)
 }
 
 
-static int xmp_release(const char *fpath, struct fuse_file_info *fi)
+static int bb_release(const char *fpath, struct fuse_file_info *fi)
 {
 	/* Just a stub.	 This method is optional and can safely be left
 	   unimplemented */
@@ -341,7 +362,7 @@ static int xmp_release(const char *fpath, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int xmp_fsync(const char *fpath, int isdatasync,
+static int bb_fsync(const char *fpath, int isdatasync,
 		     struct fuse_file_info *fi)
 {
 	/* Just a stub.	 This method is optional and can safely be left
@@ -354,7 +375,7 @@ static int xmp_fsync(const char *fpath, int isdatasync,
 }
 
 #ifdef HAVE_SETXATTR
-static int xmp_setxattr(const char *fpath, const char *name, const char *value,
+static int bb_setxattr(const char *fpath, const char *name, const char *value,
 			size_t size, int flags)
 {
 	int res = lsetxattr(fpath, name, value, size, flags);
@@ -363,7 +384,7 @@ static int xmp_setxattr(const char *fpath, const char *name, const char *value,
 	return 0;
 }
 
-static int xmp_getxattr(const char *fpath, const char *name, char *value,
+static int bb_getxattr(const char *fpath, const char *name, char *value,
 			size_t size)
 {
 	int res = lgetxattr(fpath, name, value, size);
@@ -372,7 +393,7 @@ static int xmp_getxattr(const char *fpath, const char *name, char *value,
 	return res;
 }
 
-static int xmp_listxattr(const char *fpath, char *list, size_t size)
+static int bb_listxattr(const char *fpath, char *list, size_t size)
 {
 	int res = llistxattr(fpath, list, size);
 	if (res == -1)
@@ -380,7 +401,7 @@ static int xmp_listxattr(const char *fpath, char *list, size_t size)
 	return res;
 }
 
-static int xmp_removexattr(const char *fpath, const char *name)
+static int bb_removexattr(const char *fpath, const char *name)
 {
 	int res = lremovexattr(fpath, name);
 	if (res == -1)
@@ -389,38 +410,38 @@ static int xmp_removexattr(const char *fpath, const char *name)
 }
 #endif /* HAVE_SETXATTR */
 
-static struct fuse_operations xmp_oper = {
-	.getattr	= xmp_getattr,
-	.access		= xmp_access,
-	.readlink	= xmp_readlink,
-	.readdir	= xmp_readdir,
-	.mknod		= xmp_mknod,
-	.mkdir		= xmp_mkdir,
-	.symlink	= xmp_symlink,
-	.unlink		= xmp_unlink,
-	.rmdir		= xmp_rmdir,
-	.rename		= xmp_rename,
-	.link		= xmp_link,
-	.chmod		= xmp_chmod,
-	.chown		= xmp_chown,
-	.truncate	= xmp_truncate,
-	.utimens	= xmp_utimens,
-	.open		= xmp_open,
-	.read		= xmp_read,
-	.write		= xmp_write,
-	.statfs		= xmp_statfs,
-	.create         = xmp_create,
-	.release	= xmp_release,
-	.fsync		= xmp_fsync,
+static struct fuse_operations bb_oper = {
+	.getattr	= bb_getattr,
+	.access		= bb_access,
+	.readlink	= bb_readlink,
+	.readdir	= bb_readdir,
+	.mknod		= bb_mknod,
+	.mkdir		= bb_mkdir,
+	.symlink	= bb_symlink,
+	.unlink		= bb_unlink,
+	.rmdir		= bb_rmdir,
+	.rename		= bb_rename,
+	.link		= bb_link,
+	.chmod		= bb_chmod,
+	.chown		= bb_chown,
+	.truncate	= bb_truncate,
+	.utimens	= bb_utimens,
+	.open		= bb_open,
+	.read		= bb_read,
+	.write		= bb_write,
+	.statfs		= bb_statfs,
+	.create         = bb_create,
+	.release	= bb_release,
+	.fsync		= bb_fsync,
 #ifdef HAVE_SETXATTR
-	.setxattr	= xmp_setxattr,
-	.getxattr	= xmp_getxattr,
-	.listxattr	= xmp_listxattr,
-	.removexattr	= xmp_removexattr,
+	.setxattr	= bb_setxattr,
+	.getxattr	= bb_getxattr,
+	.listxattr	= bb_listxattr,
+	.removexattr	= bb_removexattr,
 #endif
 };
 
-void xmp_usage()
+void bb_usage()
 {
     fprintf(stderr, "usage:  bbfs [FUSE and mount options] rootDir mountPoint\n");
     abort();
@@ -431,33 +452,41 @@ int main(int argc, char *argv[])
 	umask(0);
 	//mount--bind
 
-  struct xmp_state *xmp_data;
+  struct bb_state *bb_data;
   
   	if ((getuid() == 0) || (geteuid() == 0)) {
-		fprintf(stderr, "Running xmpFS as root opens unnacceptable security holes\n");
+		fprintf(stderr, "Running bbFS as root opens unnacceptable security holes\n");
 		return 1;
     }
   
     if ((argc < 3) || (argv[argc-2][0] == '-') || (argv[argc-1][0] == '-'))
-		xmp_usage();
+		bb_usage();
 
-    xmp_data = malloc(sizeof(struct xmp_state));
+    bb_data = malloc(sizeof(struct bb_state));
     
-  	if (xmp_data == NULL) {
+  	if (bb_data == NULL) {
 		perror("main calloc");
 		abort();
     }
   
-  	xmp_data->rootdir = realpath(argv[argc-2], NULL);
+  	bb_data->rootdir = realpath(argv[argc-2], NULL);
+  	if (bb_data->rootdir == NULL)
+  	{
+		fprintf(stderr, "real path fail\n");
+  		abort();
+  	}
+  	else{
+  		printf("%s \n", bb_data->rootdir);
+  	}
     argv[argc-2] = argv[argc-1];
     argv[argc-1] = NULL;
     argc--;
   
   
-    xmp_data->logfile = log_open();
+    bb_data->logfile = log_open();
 
   
-  return fuse_main(argc, argv, &xmp_oper, xmp_data);
+  return fuse_main(argc, argv, &bb_oper, bb_data);
   
   
 }

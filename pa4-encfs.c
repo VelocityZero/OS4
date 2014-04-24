@@ -33,8 +33,7 @@
 /* For pread()/pwrite() */
 #define _XOPEN_SOURCE 500
 #endif
-#include <libgen.h>
-#include <ctype.h>
+
 #include <fuse.h>
 #include <stdio.h>
 #include <string.h>
@@ -43,20 +42,36 @@
 #include <dirent.h>
 #include <errno.h>
 #include <sys/time.h>
-#include <sys/types.h>
+ 
+//need limits.h for PATH_MAX
+//need stdlib for malloc
 #include <limits.h>
-#include "log.h"
-#include "params.h"
+#include <stdlib.h>
+
 #ifdef HAVE_SETXATTR
 #include <sys/xattr.h>
-
 #endif
+
+struct p4_state {
+    FILE *logfile;
+    char *rootdir;
+};
+#define P4_DATA ((struct p4_state *) fuse_get_context()->private_data)
+
+
+static void prependPath(char fpath[PATH_MAX], const char *path)
+{
+	strcpy(fpath, P4_DATA->rootdir);
+	strncat(fpath, path, PATH_MAX);
+}
 
 static int p4_getattr(const char *fpath, struct stat *stbuf)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = lstat(fpath, stbuf);
+	res = lstat(path, stbuf);
 	if (res == -1)
 		return -errno;
 
@@ -65,9 +80,11 @@ static int p4_getattr(const char *fpath, struct stat *stbuf)
 
 static int p4_access(const char *fpath, int mask)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = access(fpath, mask);
+	res = access(path, mask);
 	if (res == -1)
 		return -errno;
 
@@ -76,9 +93,11 @@ static int p4_access(const char *fpath, int mask)
 
 static int p4_readlink(const char *fpath, char *buf, size_t size)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = readlink(fpath, buf, size - 1);
+	res = readlink(path, buf, size - 1);
 	if (res == -1)
 		return -errno;
 
@@ -90,13 +109,16 @@ static int p4_readlink(const char *fpath, char *buf, size_t size)
 static int p4_readdir(const char *fpath, void *buf, fuse_fill_dir_t filler,
 		       off_t offset, struct fuse_file_info *fi)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
+
 	DIR *dp;
 	struct dirent *de;
 
 	(void) offset;
 	(void) fi;
 
-	dp = opendir(fpath);
+	dp = opendir(path);
 	if (dp == NULL)
 		return -errno;
 
@@ -115,18 +137,20 @@ static int p4_readdir(const char *fpath, void *buf, fuse_fill_dir_t filler,
 
 static int p4_mknod(const char *fpath, mode_t mode, dev_t rdev)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
 	/* On Linux this could just be 'mknod(fpath, mode, rdev)' but this
 	   is more portable */
 	if (S_ISREG(mode)) {
-		res = open(fpath, O_CREAT | O_EXCL | O_WRONLY, mode);
+		res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
 		if (res >= 0)
 			res = close(res);
 	} else if (S_ISFIFO(mode))
-		res = mkfifo(fpath, mode);
+		res = mkfifo(path, mode);
 	else
-		res = mknod(fpath, mode, rdev);
+		res = mknod(path, mode, rdev);
 	if (res == -1)
 		return -errno;
 
@@ -135,9 +159,11 @@ static int p4_mknod(const char *fpath, mode_t mode, dev_t rdev)
 
 static int p4_mkdir(const char *fpath, mode_t mode)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = mkdir(fpath, mode);
+	res = mkdir(path, mode);
 	if (res == -1)
 		return -errno;
 
@@ -146,9 +172,11 @@ static int p4_mkdir(const char *fpath, mode_t mode)
 
 static int p4_unlink(const char *fpath)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = unlink(fpath);
+	res = unlink(path);
 	if (res == -1)
 		return -errno;
 
@@ -157,9 +185,11 @@ static int p4_unlink(const char *fpath)
 
 static int p4_rmdir(const char *fpath)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = rmdir(fpath);
+	res = rmdir(path);
 	if (res == -1)
 		return -errno;
 
@@ -201,9 +231,11 @@ static int p4_link(const char *from, const char *to)
 
 static int p4_chmod(const char *fpath, mode_t mode)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = chmod(fpath, mode);
+	res = chmod(path, mode);
 	if (res == -1)
 		return -errno;
 
@@ -212,9 +244,11 @@ static int p4_chmod(const char *fpath, mode_t mode)
 
 static int p4_chown(const char *fpath, uid_t uid, gid_t gid)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = lchown(fpath, uid, gid);
+	res = lchown(path, uid, gid);
 	if (res == -1)
 		return -errno;
 
@@ -223,9 +257,11 @@ static int p4_chown(const char *fpath, uid_t uid, gid_t gid)
 
 static int p4_truncate(const char *fpath, off_t size)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = truncate(fpath, size);
+	res = truncate(path, size);
 	if (res == -1)
 		return -errno;
 
@@ -234,6 +270,8 @@ static int p4_truncate(const char *fpath, off_t size)
 
 static int p4_utimens(const char *fpath, const struct timespec ts[2])
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 	struct timeval tv[2];
 
@@ -242,7 +280,7 @@ static int p4_utimens(const char *fpath, const struct timespec ts[2])
 	tv[1].tv_sec = ts[1].tv_sec;
 	tv[1].tv_usec = ts[1].tv_nsec / 1000;
 
-	res = utimes(fpath, tv);
+	res = utimes(path, tv);
 	if (res == -1)
 		return -errno;
 
@@ -251,9 +289,11 @@ static int p4_utimens(const char *fpath, const struct timespec ts[2])
 
 static int p4_open(const char *fpath, struct fuse_file_info *fi)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = open(fpath, fi->flags);
+	res = open(path, fi->flags);
 	if (res == -1)
 		return -errno;
 
@@ -264,11 +304,13 @@ static int p4_open(const char *fpath, struct fuse_file_info *fi)
 static int p4_read(const char *fpath, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int fd;
 	int res;
 
 	(void) fi;
-	fd = open(fpath, O_RDONLY);
+	fd = open(path, O_RDONLY);
 	if (fd == -1)
 		return -errno;
 
@@ -283,11 +325,13 @@ static int p4_read(const char *fpath, char *buf, size_t size, off_t offset,
 static int p4_write(const char *fpath, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int fd;
 	int res;
 
 	(void) fi;
-	fd = open(fpath, O_WRONLY);
+	fd = open(path, O_WRONLY);
 	if (fd == -1)
 		return -errno;
 
@@ -301,9 +345,11 @@ static int p4_write(const char *fpath, const char *buf, size_t size,
 
 static int p4_statfs(const char *fpath, struct statvfs *stbuf)
 {
+	char path[PATH_MAX];
+	prependPath(path,fpath);
 	int res;
 
-	res = statvfs(fpath, stbuf);
+	res = statvfs(path, stbuf);
 	if (res == -1)
 		return -errno;
 
@@ -312,10 +358,12 @@ static int p4_statfs(const char *fpath, struct statvfs *stbuf)
 
 static int p4_create(const char* fpath, mode_t mode, struct fuse_file_info* fi) {
 
+	char path[PATH_MAX];
+	prependPath(path,fpath);
     (void) fi;
 
     int res;
-    res = creat(fpath, mode);
+    res = creat(path, mode);
     if(res == -1)
 	return -errno;
 
@@ -351,7 +399,10 @@ static int p4_fsync(const char *fpath, int isdatasync,
 static int p4_setxattr(const char *fpath, const char *name, const char *value,
 			size_t size, int flags)
 {
-	int res = lsetxattr(fpath, name, value, size, flags);
+	char path[PATH_MAX];
+	prependPath(path,fpath);
+
+	int res = lsetxattr(path, name, value, size, flags);
 	if (res == -1)
 		return -errno;
 	return 0;
@@ -360,7 +411,9 @@ static int p4_setxattr(const char *fpath, const char *name, const char *value,
 static int p4_getxattr(const char *fpath, const char *name, char *value,
 			size_t size)
 {
-	int res = lgetxattr(fpath, name, value, size);
+	char path[PATH_MAX];
+	prependPath(path,fpath);
+	int res = lgetxattr(path, name, value, size);
 	if (res == -1)
 		return -errno;
 	return res;
@@ -368,7 +421,9 @@ static int p4_getxattr(const char *fpath, const char *name, char *value,
 
 static int p4_listxattr(const char *fpath, char *list, size_t size)
 {
-	int res = llistxattr(fpath, list, size);
+	char path[PATH_MAX];
+	prependPath(path,fpath);
+	int res = llistxattr(path, list, size);
 	if (res == -1)
 		return -errno;
 	return res;
@@ -376,7 +431,9 @@ static int p4_listxattr(const char *fpath, char *list, size_t size)
 
 static int p4_removexattr(const char *fpath, const char *name)
 {
-	int res = lremovexattr(fpath, name);
+	char path[PATH_MAX];
+	prependPath(path,fpath);
+	int res = lremovexattr(path, name);
 	if (res == -1)
 		return -errno;
 	return 0;
@@ -422,58 +479,29 @@ void p4_usage()
 
 int main(int argc, char *argv[])
 {
-	umask(0);
-	//mount--bind
+	int fuse_stat;
+	struct p4_state *p4_data;
 
-  struct p4_state *p4_data;
-  
-  	if ((getuid() == 0) || (geteuid() == 0)) {
-		fprintf(stderr, "Running p4FS as root opens unnacceptable security holes\n");
-		return 1;
-    }
-  
-    if ((argc < 3) || (argv[argc-2][0] == '-') || (argv[argc-1][0] == '-'))
-		p4_usage();
+	p4_data = malloc(sizeof(struct p4_state));
 
-    p4_data = malloc(sizeof(struct p4_state));
-    
-  	if (p4_data == NULL) {
+	if (p4_data == NULL) {
 		perror("main calloc");
 		abort();
-    }
-  
-  	p4_data->rootdir = realpath(argv[argc-2], NULL);
-  	if (p4_data->rootdir == NULL)
-  	{
-		fprintf(stderr, "real path fail\n");
-  		abort();
-  	}
-  	else{
-  		printf("%s \n", p4_data->rootdir);
-  	}
-    argv[argc-2] = argv[argc-1];
+	}
+
+	p4_data->rootdir = realpath(argv[argc-2], NULL);
+	argv[argc-2] = argv[argc-1];
     argv[argc-1] = NULL;
     argc--;
-  
-  
-    p4_data->logfile = log_open();
 
-  
-  return fuse_main(argc, argv, &p4_oper, p4_data);
+	if (p4_data->rootdir == NULL)
+	{
+		fprintf(stderr, "realpath fail\n");
+		abort();
+	}
+
+	fuse_stat = fuse_main(argc, argv, &p4_oper, p4_data);
+	return fuse_stat;
   
   
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -14,7 +14,7 @@ CFLAGSFUSE   = `pkg-config fuse --cflags`
 LLIBSFUSE    = `pkg-config fuse --libs `
 LLIBSOPENSSL = -lcrypto
 
-CFLAGS = -c -g -Wall -Wextra -D_FILE_OFFSET_BITS=64 -w
+CFLAGS = -c -g -Wall -Wextra -D_FILE_OFFSET_BITS=64
 LFLAGS = -g -Wall -Wextra
 
 FUSE_EXAMPLES = fusehello fusexmp 
@@ -35,7 +35,7 @@ fusehello: fusehello.o
 fusexmp: fusexmp.o
 	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE)
 
-pa4-encfs: pa4-encfs.o log.o
+pa4-encfs: pa4-encfs.o
 	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE)
 
 xattr-util: xattr-util.o
@@ -58,6 +58,12 @@ aes-crypt-util.o: aes-crypt-util.c aes-crypt.h
 
 aes-crypt.o: aes-crypt.c aes-crypt.h
 	$(CC) $(CFLAGS) $<
+
+unmount: 
+	fusermount -u ./Mirror
+
+mount: 
+	./pa4-encfs ./Test ./Mirror
 
 clean:
 	rm -f $(FUSE_EXAMPLES)

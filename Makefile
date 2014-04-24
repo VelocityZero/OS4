@@ -63,6 +63,7 @@ clean:
 	rm -f $(FUSE_EXAMPLES)
 	rm -f $(XATTR_EXAMPLES)
 	rm -f $(OPENSSL_EXAMPLES)
+	rm -f pa4-encfs
 	rm -f *.o
 	rm -f *~
 	rm -f handout/*~

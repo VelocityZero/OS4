@@ -10,7 +10,7 @@
   This program can be distributed under the terms of the GNU GPL.
   See the file COPYING.
 
-  gcc -Wall `pkg-config fuse --cflags` fusebb.c -o fusebb `pkg-config fuse --libs`
+  gcc -Wall `pkg-config fuse --cflags` fusep4.c -o fusep4 `pkg-config fuse --libs`
 
   Note: This implementation is largely stateless and does not maintain
         open file handels between open and release calls (fi->fh).
@@ -52,34 +52,7 @@
 
 #endif
 
-// Report errors to logfile and give -errno to caller
-static int bb_error(char *str)
-{
-    int ret = -errno;
-    
-    log_msg("    ERROR %s: %s\n", str, strerror(errno));
-    
-    return ret;
-}
-
-// Check whether the given user is permitted to perform the given operation on the given 
-
-//  All the paths I see are relative to the root of the mounted
-//  filesystem.  In order to get to the underlying filesystem, I need to
-//  have the mountpoint.  I'll save it away early on in main(), and then
-//  whenever I need a path for something I'll call this to construct
-//  it.
-static void bb_fullpath(char fpath[PATH_MAX], const char *path)
-{
-    strcpy(fpath, BB_DATA->rootdir);
-    strncat(fpath, path, PATH_MAX); // ridiculously long paths will
-				    // break here
-
-    log_msg("    bb_fullpath:  rootdir = \"%s\", path = \"%s\", fpath = \"%s\"\n",
-	    BB_DATA->rootdir, path, fpath);
-}
-
-static int bb_getattr(const char *fpath, struct stat *stbuf)
+static int p4_getattr(const char *fpath, struct stat *stbuf)
 {
 	int res;
 
@@ -90,7 +63,7 @@ static int bb_getattr(const char *fpath, struct stat *stbuf)
 	return 0;
 }
 
-static int bb_access(const char *fpath, int mask)
+static int p4_access(const char *fpath, int mask)
 {
 	int res;
 
@@ -101,7 +74,7 @@ static int bb_access(const char *fpath, int mask)
 	return 0;
 }
 
-static int bb_readlink(const char *fpath, char *buf, size_t size)
+static int p4_readlink(const char *fpath, char *buf, size_t size)
 {
 	int res;
 
@@ -114,7 +87,7 @@ static int bb_readlink(const char *fpath, char *buf, size_t size)
 }
 
 
-static int bb_readdir(const char *fpath, void *buf, fuse_fill_dir_t filler,
+static int p4_readdir(const char *fpath, void *buf, fuse_fill_dir_t filler,
 		       off_t offset, struct fuse_file_info *fi)
 {
 	DIR *dp;
@@ -140,7 +113,7 @@ static int bb_readdir(const char *fpath, void *buf, fuse_fill_dir_t filler,
 	return 0;
 }
 
-static int bb_mknod(const char *fpath, mode_t mode, dev_t rdev)
+static int p4_mknod(const char *fpath, mode_t mode, dev_t rdev)
 {
 	int res;
 
@@ -160,7 +133,7 @@ static int bb_mknod(const char *fpath, mode_t mode, dev_t rdev)
 	return 0;
 }
 
-static int bb_mkdir(const char *fpath, mode_t mode)
+static int p4_mkdir(const char *fpath, mode_t mode)
 {
 	int res;
 
@@ -171,7 +144,7 @@ static int bb_mkdir(const char *fpath, mode_t mode)
 	return 0;
 }
 
-static int bb_unlink(const char *fpath)
+static int p4_unlink(const char *fpath)
 {
 	int res;
 
@@ -182,7 +155,7 @@ static int bb_unlink(const char *fpath)
 	return 0;
 }
 
-static int bb_rmdir(const char *fpath)
+static int p4_rmdir(const char *fpath)
 {
 	int res;
 
@@ -193,7 +166,7 @@ static int bb_rmdir(const char *fpath)
 	return 0;
 }
 
-static int bb_symlink(const char *from, const char *to)
+static int p4_symlink(const char *from, const char *to)
 {
 	int res;
 
@@ -204,7 +177,7 @@ static int bb_symlink(const char *from, const char *to)
 	return 0;
 }
 
-static int bb_rename(const char *from, const char *to)
+static int p4_rename(const char *from, const char *to)
 {
 	int res;
 
@@ -215,7 +188,7 @@ static int bb_rename(const char *from, const char *to)
 	return 0;
 }
 
-static int bb_link(const char *from, const char *to)
+static int p4_link(const char *from, const char *to)
 {
 	int res;
 
@@ -226,7 +199,7 @@ static int bb_link(const char *from, const char *to)
 	return 0;
 }
 
-static int bb_chmod(const char *fpath, mode_t mode)
+static int p4_chmod(const char *fpath, mode_t mode)
 {
 	int res;
 
@@ -237,7 +210,7 @@ static int bb_chmod(const char *fpath, mode_t mode)
 	return 0;
 }
 
-static int bb_chown(const char *fpath, uid_t uid, gid_t gid)
+static int p4_chown(const char *fpath, uid_t uid, gid_t gid)
 {
 	int res;
 
@@ -248,7 +221,7 @@ static int bb_chown(const char *fpath, uid_t uid, gid_t gid)
 	return 0;
 }
 
-static int bb_truncate(const char *fpath, off_t size)
+static int p4_truncate(const char *fpath, off_t size)
 {
 	int res;
 
@@ -259,7 +232,7 @@ static int bb_truncate(const char *fpath, off_t size)
 	return 0;
 }
 
-static int bb_utimens(const char *fpath, const struct timespec ts[2])
+static int p4_utimens(const char *fpath, const struct timespec ts[2])
 {
 	int res;
 	struct timeval tv[2];
@@ -276,7 +249,7 @@ static int bb_utimens(const char *fpath, const struct timespec ts[2])
 	return 0;
 }
 
-static int bb_open(const char *fpath, struct fuse_file_info *fi)
+static int p4_open(const char *fpath, struct fuse_file_info *fi)
 {
 	int res;
 
@@ -288,7 +261,7 @@ static int bb_open(const char *fpath, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int bb_read(const char *fpath, char *buf, size_t size, off_t offset,
+static int p4_read(const char *fpath, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
 	int fd;
@@ -307,7 +280,7 @@ static int bb_read(const char *fpath, char *buf, size_t size, off_t offset,
 	return res;
 }
 
-static int bb_write(const char *fpath, const char *buf, size_t size,
+static int p4_write(const char *fpath, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
 	int fd;
@@ -326,7 +299,7 @@ static int bb_write(const char *fpath, const char *buf, size_t size,
 	return res;
 }
 
-static int bb_statfs(const char *fpath, struct statvfs *stbuf)
+static int p4_statfs(const char *fpath, struct statvfs *stbuf)
 {
 	int res;
 
@@ -337,7 +310,7 @@ static int bb_statfs(const char *fpath, struct statvfs *stbuf)
 	return 0;
 }
 
-static int bb_create(const char* fpath, mode_t mode, struct fuse_file_info* fi) {
+static int p4_create(const char* fpath, mode_t mode, struct fuse_file_info* fi) {
 
     (void) fi;
 
@@ -352,7 +325,7 @@ static int bb_create(const char* fpath, mode_t mode, struct fuse_file_info* fi) 
 }
 
 
-static int bb_release(const char *fpath, struct fuse_file_info *fi)
+static int p4_release(const char *fpath, struct fuse_file_info *fi)
 {
 	/* Just a stub.	 This method is optional and can safely be left
 	   unimplemented */
@@ -362,7 +335,7 @@ static int bb_release(const char *fpath, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int bb_fsync(const char *fpath, int isdatasync,
+static int p4_fsync(const char *fpath, int isdatasync,
 		     struct fuse_file_info *fi)
 {
 	/* Just a stub.	 This method is optional and can safely be left
@@ -375,7 +348,7 @@ static int bb_fsync(const char *fpath, int isdatasync,
 }
 
 #ifdef HAVE_SETXATTR
-static int bb_setxattr(const char *fpath, const char *name, const char *value,
+static int p4_setxattr(const char *fpath, const char *name, const char *value,
 			size_t size, int flags)
 {
 	int res = lsetxattr(fpath, name, value, size, flags);
@@ -384,7 +357,7 @@ static int bb_setxattr(const char *fpath, const char *name, const char *value,
 	return 0;
 }
 
-static int bb_getxattr(const char *fpath, const char *name, char *value,
+static int p4_getxattr(const char *fpath, const char *name, char *value,
 			size_t size)
 {
 	int res = lgetxattr(fpath, name, value, size);
@@ -393,7 +366,7 @@ static int bb_getxattr(const char *fpath, const char *name, char *value,
 	return res;
 }
 
-static int bb_listxattr(const char *fpath, char *list, size_t size)
+static int p4_listxattr(const char *fpath, char *list, size_t size)
 {
 	int res = llistxattr(fpath, list, size);
 	if (res == -1)
@@ -401,7 +374,7 @@ static int bb_listxattr(const char *fpath, char *list, size_t size)
 	return res;
 }
 
-static int bb_removexattr(const char *fpath, const char *name)
+static int p4_removexattr(const char *fpath, const char *name)
 {
 	int res = lremovexattr(fpath, name);
 	if (res == -1)
@@ -410,40 +383,40 @@ static int bb_removexattr(const char *fpath, const char *name)
 }
 #endif /* HAVE_SETXATTR */
 
-static struct fuse_operations bb_oper = {
-	.getattr	= bb_getattr,
-	.access		= bb_access,
-	.readlink	= bb_readlink,
-	.readdir	= bb_readdir,
-	.mknod		= bb_mknod,
-	.mkdir		= bb_mkdir,
-	.symlink	= bb_symlink,
-	.unlink		= bb_unlink,
-	.rmdir		= bb_rmdir,
-	.rename		= bb_rename,
-	.link		= bb_link,
-	.chmod		= bb_chmod,
-	.chown		= bb_chown,
-	.truncate	= bb_truncate,
-	.utimens	= bb_utimens,
-	.open		= bb_open,
-	.read		= bb_read,
-	.write		= bb_write,
-	.statfs		= bb_statfs,
-	.create         = bb_create,
-	.release	= bb_release,
-	.fsync		= bb_fsync,
+static struct fuse_operations p4_oper = {
+	.getattr	= p4_getattr,
+	.access		= p4_access,
+	.readlink	= p4_readlink,
+	.readdir	= p4_readdir,
+	.mknod		= p4_mknod,
+	.mkdir		= p4_mkdir,
+	.symlink	= p4_symlink,
+	.unlink		= p4_unlink,
+	.rmdir		= p4_rmdir,
+	.rename		= p4_rename,
+	.link		= p4_link,
+	.chmod		= p4_chmod,
+	.chown		= p4_chown,
+	.truncate	= p4_truncate,
+	.utimens	= p4_utimens,
+	.open		= p4_open,
+	.read		= p4_read,
+	.write		= p4_write,
+	.statfs		= p4_statfs,
+	.create         = p4_create,
+	.release	= p4_release,
+	.fsync		= p4_fsync,
 #ifdef HAVE_SETXATTR
-	.setxattr	= bb_setxattr,
-	.getxattr	= bb_getxattr,
-	.listxattr	= bb_listxattr,
-	.removexattr	= bb_removexattr,
+	.setxattr	= p4_setxattr,
+	.getxattr	= p4_getxattr,
+	.listxattr	= p4_listxattr,
+	.removexattr	= p4_removexattr,
 #endif
 };
 
-void bb_usage()
+void p4_usage()
 {
-    fprintf(stderr, "usage:  bbfs [FUSE and mount options] rootDir mountPoint\n");
+    fprintf(stderr, "usage:  p4fs [FUSE and mount options] rootDir mountPoint\n");
     abort();
 }
 
@@ -452,41 +425,41 @@ int main(int argc, char *argv[])
 	umask(0);
 	//mount--bind
 
-  struct bb_state *bb_data;
+  struct p4_state *p4_data;
   
   	if ((getuid() == 0) || (geteuid() == 0)) {
-		fprintf(stderr, "Running bbFS as root opens unnacceptable security holes\n");
+		fprintf(stderr, "Running p4FS as root opens unnacceptable security holes\n");
 		return 1;
     }
   
     if ((argc < 3) || (argv[argc-2][0] == '-') || (argv[argc-1][0] == '-'))
-		bb_usage();
+		p4_usage();
 
-    bb_data = malloc(sizeof(struct bb_state));
+    p4_data = malloc(sizeof(struct p4_state));
     
-  	if (bb_data == NULL) {
+  	if (p4_data == NULL) {
 		perror("main calloc");
 		abort();
     }
   
-  	bb_data->rootdir = realpath(argv[argc-2], NULL);
-  	if (bb_data->rootdir == NULL)
+  	p4_data->rootdir = realpath(argv[argc-2], NULL);
+  	if (p4_data->rootdir == NULL)
   	{
 		fprintf(stderr, "real path fail\n");
   		abort();
   	}
   	else{
-  		printf("%s \n", bb_data->rootdir);
+  		printf("%s \n", p4_data->rootdir);
   	}
     argv[argc-2] = argv[argc-1];
     argv[argc-1] = NULL;
     argc--;
   
   
-    bb_data->logfile = log_open();
+    p4_data->logfile = log_open();
 
   
-  return fuse_main(argc, argv, &bb_oper, bb_data);
+  return fuse_main(argc, argv, &p4_oper, p4_data);
   
   
 }

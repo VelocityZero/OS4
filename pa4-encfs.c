@@ -441,17 +441,37 @@ static int p4_create(const char* fpath, mode_t mode, struct fuse_file_info* fi) 
 
 	char path[PATH_MAX];
 	prependPath(path,fpath);
+	char *mtext;
+	size_t msize;
+
+	(void) mode;
     (void) fi;
+
+    FILE * inFile, * outFile;
+
+    outFile = fopen(path, "w");
+    if (outFile == NULL)
+    	return -errno;
+
+    // open file from memory - The Heap
+	inFile = open_memstream(&mtext, &msize);
+	if (inFile == NULL)
+		return -errno;
+
+	do_crypt(inFile, outFile, ENCRYPT, P4_DATA->key_phrase);
+	fclose(inFile);
 
     if(setxattr(path, XATTR_FLAGS, XATTR_ENCRYPTED, 4, 0))
 		return -errno;
 
-    int res;
+    /*int res;
     res = creat(path, mode);
     if(res == -1)
 		return -errno;
 
-    close(res);
+    close(res);*/
+
+	fclose(outFile);
 
     return 0;
 }

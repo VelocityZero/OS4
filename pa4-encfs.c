@@ -25,13 +25,21 @@
 #define FUSE_USE_VERSION 28
 #define HAVE_SETXATTR
 
+#define XATTR_ENCRYPTED "true"
+#define XATTR_DECRYPTED "false"
+#define ENCRYPT 		 1
+#define DECRYPT 		 0
+#define PASSTHROUGH 	-1
+#define XATTR_FLAGS "user.encrypted"
+
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 
 #ifdef linux
 /* For pread()/pwrite() */
-#define _XOPEN_SOURCE 500
+#define _XOPEN_SOURCE 700
 #endif
 
 #include <fuse.h>
@@ -42,11 +50,13 @@
 #include <dirent.h>
 #include <errno.h>
 #include <sys/time.h>
- 
-//need limits.h for PATH_MAX
-//need stdlib for malloc
+#include <sys/types.h>
+#include <libgen.h>
+
 #include <limits.h>
 #include <stdlib.h>
+
+#include "aes-crypt.h"
 
 #ifdef HAVE_SETXATTR
 #include <sys/xattr.h>
@@ -54,6 +64,7 @@
 
 struct p4_state {
     FILE *logfile;
+    char *key_phrase;
     char *rootdir;
 };
 #define P4_DATA ((struct p4_state *) fuse_get_context()->private_data)
@@ -70,6 +81,7 @@ static int p4_getattr(const char *fpath, struct stat *stbuf)
 	char path[PATH_MAX];
 	prependPath(path,fpath);
 	int res;
+
 
 	res = lstat(path, stbuf);
 	if (res == -1)
@@ -306,19 +318,50 @@ static int p4_read(const char *fpath, char *buf, size_t size, off_t offset,
 {
 	char path[PATH_MAX];
 	prependPath(path,fpath);
-	int fd;
+
+	//int fd;
 	int res;
 
 	(void) fi;
-	fd = open(path, O_RDONLY);
+	(void) offset;
+
+	char *mtext;
+	size_t msize;
+	int action = PASSTHROUGH;
+	char xattr_value[8];
+	ssize_t xattr_len;
+
+	FILE *inFile, *outFile;
+
+	inFile = fopen(path, "r");
+	if (inFile == NULL)
+		return -errno;
+	// open file from memory - The Heap
+	outFile = open_memstream(&mtext, &msize);
+	if (outFile == NULL)
+		return -errno;
+
+	xattr_len = getxattr(path, XATTR_FLAGS, xattr_value, 8);
+	if (xattr_len != -1 && !memcmp(xattr_value, XATTR_ENCRYPTED, 4))
+		action = DECRYPT;
+
+	do_crypt(inFile, outFile, action, P4_DATA->key_phrase);
+	fclose(inFile);
+
+	fflush(outFile);
+	fseek(outFile, offset, SEEK_SET);
+	res = fread(buf, 1, size, outFile);
+
+	/*fd = open(path, O_RDONLY);
 	if (fd == -1)
 		return -errno;
 
-	res = pread(fd, buf, size, offset);
+	res = pread(fd, buf, size, offset);*/
 	if (res == -1)
 		res = -errno;
 
-	close(fd);
+	//close(fd);
+	fclose(outFile);
 	return res;
 }
 
@@ -327,19 +370,57 @@ static int p4_write(const char *fpath, const char *buf, size_t size,
 {
 	char path[PATH_MAX];
 	prependPath(path,fpath);
-	int fd;
+
+	//int fd;
 	int res;
 
 	(void) fi;
-	fd = open(path, O_WRONLY);
+
+	char *mtext;
+	size_t msize;
+	int action = PASSTHROUGH;
+	char xattr_value[8];
+	ssize_t xattr_len;
+
+	FILE * inFile, * outFile;
+	
+	inFile = fopen(path, "r");
+	if (inFile == NULL)
+		return -errno;
+	// open file from memory - The Heap
+	outFile = open_memstream(&mtext, &msize);
+	if (outFile == NULL)
+		return -errno;
+
+	xattr_len = getxattr(path, XATTR_FLAGS, xattr_value, 8);
+	if (xattr_len != -1 && !memcmp(xattr_value, XATTR_ENCRYPTED, 4))
+		action = DECRYPT;
+
+	do_crypt(inFile, outFile, action, P4_DATA->key_phrase);
+	fclose(inFile);
+
+	fseek(outFile, offset, SEEK_SET);
+	res = fwrite(buf, 1, size, outFile);
+
+	/*fd = open(path, O_WRONLY);
 	if (fd == -1)
 		return -errno;
 
-	res = pwrite(fd, buf, size, offset);
+	res = pwrite(fd, buf, size, offset);*/
 	if (res == -1)
 		res = -errno;
+	fflush(outFile);
 
-	close(fd);
+	if(action == DECRYPT)
+		action = ENCRYPT;
+
+	inFile = fopen(path, "w");
+	fseek(outFile, 0, SEEK_SET);
+	do_crypt(outFile, inFile, action, P4_DATA->key_phrase);
+
+	fclose(outFile);
+	fclose(inFile);
+	//close(fd);
 	return res;
 }
 
@@ -362,10 +443,13 @@ static int p4_create(const char* fpath, mode_t mode, struct fuse_file_info* fi) 
 	prependPath(path,fpath);
     (void) fi;
 
+    if(setxattr(path, XATTR_FLAGS, XATTR_ENCRYPTED, 4, 0))
+		return -errno;
+
     int res;
     res = creat(path, mode);
     if(res == -1)
-	return -errno;
+		return -errno;
 
     close(res);
 
@@ -403,6 +487,7 @@ static int p4_setxattr(const char *fpath, const char *name, const char *value,
 	prependPath(path,fpath);
 
 	int res = lsetxattr(path, name, value, size, flags);
+
 	if (res == -1)
 		return -errno;
 	return 0;
@@ -479,6 +564,7 @@ void p4_usage()
 
 int main(int argc, char *argv[])
 {
+	umask(0);
 	int fuse_stat;
 	struct p4_state *p4_data;
 
@@ -489,10 +575,13 @@ int main(int argc, char *argv[])
 		abort();
 	}
 
+	p4_data->key_phrase = argv[argc-3];
 	p4_data->rootdir = realpath(argv[argc-2], NULL);
-	argv[argc-2] = argv[argc-1];
+	
+	argv[argc-3] = argv[argc-1];
+	argv[argc-2] = NULL;
     argv[argc-1] = NULL;
-    argc--;
+    argc-=2;
 
 	if (p4_data->rootdir == NULL)
 	{
@@ -500,8 +589,8 @@ int main(int argc, char *argv[])
 		abort();
 	}
 
+
+
 	fuse_stat = fuse_main(argc, argv, &p4_oper, p4_data);
 	return fuse_stat;
-  
-  
 }

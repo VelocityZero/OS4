@@ -35,8 +35,8 @@ fusehello: fusehello.o
 fusexmp: fusexmp.o
 	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE)
 
-pa4-encfs: pa4-encfs.o
-	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE)
+pa4-encfs: pa4-encfs.o aes-crypt.o
+	$(CC) $(LFLAGS) $^ -o $@ $(LLIBSFUSE)$(LLIBSOPENSSL)
 
 xattr-util: xattr-util.o
 	$(CC) $(LFLAGS) $^ -o $@
@@ -63,7 +63,7 @@ unmount:
 	fusermount -u ./Mirror
 
 mount: 
-	./pa4-encfs ./Test ./Mirror
+	./pa4-encfs "89" ./Test ./Mirror
 
 clean:
 	rm -f $(FUSE_EXAMPLES)
